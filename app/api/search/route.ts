@@ -7,6 +7,7 @@ export async function GET(req: Request) {
     const qRaw = (searchParams.get("q") || "").trim();
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const num = Math.min(50, Math.max(6, parseInt(searchParams.get("num") || "24", 10))); // keep sane
+    const version = "route-v2-2026-02-17";
 
     if (!qRaw) {
       return NextResponse.json({ error: "Missing q parameter" }, { status: 400 });
@@ -145,6 +146,7 @@ const watchIntentTerms = [
     const hasNext = !!data?.serpapi_pagination?.next;
 
     return NextResponse.json({
+      version,
       query: qRaw,
       results,
       meta: {
