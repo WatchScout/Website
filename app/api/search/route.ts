@@ -41,7 +41,15 @@ export async function GET(req: Request) {
     const data = await r.json();
 
     const qLower = qRaw.toLowerCase();
-    const isBroadSearch = qLower.length <= 8;
+
+// better intent detection than length
+const hasDigit = /\d/.test(qLower);
+const looksLikeRef = /[a-z]{1,}\d{2,}|^\d{4,}$/.test(qLower.replace(/\s+/g, ""));
+const tokenCount = qLower.split(/\s+/).filter(Boolean).length;
+
+const isModelSearch = hasDigit || looksLikeRef;
+const isBroadSearch = !isModelSearch;
+
 
     const allowedSources = [
       "chrono24",
@@ -54,6 +62,23 @@ export async function GET(req: Request) {
       "seiko",      // optional: brand stores sometimes appear as source
       "seiko usa",  // optional
     ];
+
+    const negativeTitleTerms = [
+  "handbag", "purse", "satchel", "bag", "wallet", "belt", "sunglasses",
+  "perfume", "cologne", "fragrance", "necklace", "ring", "earrings",
+  "shoe", "shoes", "sneaker", "sneakers", "jewelry", "jewellery",
+  "keychain", "key chain"
+];
+
+const watchIntentTerms = [
+  "watch", "watches", "automatic", "chronograph", "chrono", "diver", "diving",
+  "gmt", "pilot", "field", "dress", "mechanical", "quartz", "stainless",
+  "bracelet", "dial", "bezel", "case", "movement",
+  // common brands to help intent
+  "seiko", "tissot", "omega", "rolex", "hamilton", "citizen", "casio",
+  "orient", "bulova", "tag", "heuer", "longines", "tudor", "breitling"
+];
+
 
     // Merge possible arrays SerpAPI can return
     const allItems = [
@@ -79,32 +104,36 @@ export async function GET(req: Request) {
         );
       })
 
+      // Filter obvious non-watch items
+.filter((it: any) => {
+  const title = (it.title || "").toLowerCase();
+  return !negativeTitleTerms.some((bad) => title.includes(bad));
+})
+
+// For broad searches, enforce watch intent so "speedy" doesn't return bags
+.filter((it: any) => {
+  if (!isBroadSearch) return true;
+  const title = (it.title || "").toLowerCase();
+  return watchIntentTerms.some((w) => title.includes(w));
+})
+
+
       // Query match:
-      // - broad searches: contains
-      // - model-ish searches: ignore spaces
-      .filter((it: any) => {
-        const title = (it.title || "").toLowerCase();
+// - model/ref searches: loose "includes" on cleaned strings (keeps your SSC911 behavior)
+// - broad searches: require all tokens somewhere in the title
+.filter((it: any) => {
+  const title = (it.title || "").toLowerCase();
 
-        if (isBroadSearch) {
-          return title.includes(qLower);
-        }
+  if (isModelSearch) {
+    const cleanTitle = title.replace(/\s+/g, "");
+    const cleanQuery = qLower.replace(/\s+/g, "");
+    return cleanTitle.includes(cleanQuery);
+  }
 
-        const cleanTitle = title.replace(/\s+/g, "");
-        const cleanQuery = qLower.replace(/\s+/g, "");
-        return cleanTitle.includes(cleanQuery);
-      })
+  const tokens = qLower.split(/\s+/).filter(Boolean);
+  return tokens.every((t) => title.includes(t));
+})
 
-      .map((it: any) => ({
-        title: it.title,
-        link: it.link || it.product_link,
-        source: it.source || "",
-        price: it.price || null,
-        extracted_price: it.extracted_price ?? null,
-        rating: it.rating ?? null,
-        reviews: it.reviews ?? null,
-        thumbnail: it.thumbnail ?? null,
-        condition: it.second_hand_condition ?? null,
-      }));
 
     // Low price first by default
     results.sort(
